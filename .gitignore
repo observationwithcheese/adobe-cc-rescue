@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+*.spec
+
+# Tooling
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Runtime output — NEVER commit backups or credentials
+backup/
+out/
+*.har
+token.txt
+session.json
+.adobe-rescue/
+manifest.json
+manifest.csv
+report.html
+
+# OS
+.DS_Store
+Thumbs.db

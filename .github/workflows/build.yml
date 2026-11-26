@@ -1,0 +1,145 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Unit tests
+        run: python -m unittest discover -s . -p "test_*.py" -v
+      - name: Smoke test CLI
+        run: |
+          python -m adobe_rescue --version
+          python -m adobe_rescue sources
+          python -m adobe_rescue doctor -o "$RUNNER_TEMP/bk"
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pyinstaller==6.11.1
+      - name: Build GUI executable
+        run: >
+          pyinstaller --noconfirm --onefile --windowed
+          --name "Adobe CC Rescue"
+          --collect-submodules adobe_rescue
+          --collect-all webview
+          --hidden-import win32com --hidden-import win32com.client
+          --hidden-import pythoncom --hidden-import pywintypes
+          --hidden-import win32timezone
+          adobe_rescue/app.py
+      - name: Build CLI executable
+        run: >
+          pyinstaller --noconfirm --onefile --console
+          --name "adobe-rescue"
+          --collect-submodules adobe_rescue
+          --collect-all webview
+          --hidden-import win32com --hidden-import win32com.client
+          --hidden-import pythoncom --hidden-import pywintypes
+          --hidden-import win32timezone
+          adobe_rescue/cli.py
+      - name: Stage release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          Copy-Item "dist/Adobe CC Rescue.exe" staging/
+          Copy-Item "dist/adobe-rescue.exe" staging/
+          Copy-Item README.md staging/
+          Copy-Item docs/KULLANIM.md staging/
+          Compress-Archive -Path staging/* -DestinationPath "adobe-cc-rescue-windows.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: adobe-cc-rescue-windows.zip
+
+  macos:
+    needs: test
+    # Apple Silicon only — the team has no Intel Macs. To bring Intel back,
+    # add `macos-15-intel` / x86_64 to the matrix.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest     # Apple Silicon (M1-M4)
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pyinstaller==6.11.1
+      - name: Build .app
+        run: >
+          pyinstaller --noconfirm --onedir --windowed
+          --name "Adobe CC Rescue"
+          --osx-bundle-identifier com.maglab.adobeccrescue
+          --collect-submodules adobe_rescue
+          --collect-all webview
+          adobe_rescue/app.py
+      - name: Build CLI binary
+        run: >
+          pyinstaller --noconfirm --onefile --console
+          --name "adobe-rescue"
+          --collect-submodules adobe_rescue
+          --collect-all webview
+          adobe_rescue/cli.py
+      - name: Package DMG
+        run: |
+          mkdir -p staging
+          cp -R "dist/Adobe CC Rescue.app" staging/
+          cp dist/adobe-rescue staging/
+          cp README.md docs/KULLANIM.md staging/
+          ln -s /Applications staging/Applications
+          hdiutil create -volname "Adobe CC Rescue" -srcfolder staging -ov -format UDZO \
+            "adobe-cc-rescue-macos-${{ matrix.arch }}.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: adobe-cc-rescue-macos-${{ matrix.arch }}.dmg
+
+  release:
+    # Ship whatever built: a missing Intel image must not block the release.
+    if: always() && startsWith(github.ref, 'refs/tags/v') && needs.windows.result == 'success'
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: false
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          body: |
+            ## Adobe CC Rescue
+
+            | Dosya | Kime |
+            |---|---|
+            | `adobe-cc-rescue-windows.zip` | Windows kullanıcıları — içindeki **Adobe CC Rescue.exe**'ye çift tıklayın |
+            | `adobe-cc-rescue-macos-arm64.dmg` | Mac (Apple Silicon) |
+
+            Uygulamalar imzalı değildir.
+            **macOS:** ilk açılışta sağ tık > Aç, ardından yine Aç.
+            **Windows:** SmartScreen uyarısında "Ek bilgi" > "Yine de çalıştır".

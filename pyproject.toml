@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adobe-cc-rescue"
+version = "1.0.0"
+description = "Batch backup/downloader for Adobe Creative Cloud accounts before a tenant migration"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "MagLab" }]
+dependencies = [
+    "requests>=2.32,<3",
+    "pywebview>=5.3,<6",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.scripts]
+adobe-rescue = "adobe_rescue.cli:main"
+
+[project.gui-scripts]
+adobe-rescue-gui = "adobe_rescue.app:main"
+
+[tool.setuptools.packages.find]
+include = ["adobe_rescue*"]
